@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const initialPlayers = [
@@ -55,6 +55,8 @@ function App() {
   const [newPlayer, setNewPlayer] = useState({ name: '', rating: '' })
   const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('family-chess-history') || '[]'))
   const [selectedHistory, setSelectedHistory] = useState(null)
+  const [backupNotice, setBackupNotice] = useState('')
+  const importInputRef = useRef(null)
   const standings = useMemo(() => [...players].sort((a, b) => b.points - a.points || b.rating - a.rating), [players])
   // Every game appears in two player records, so divide the record total by two.
   const tournamentStats = useMemo(() => {
@@ -191,6 +193,43 @@ function App() {
     setActiveTab('History')
   }
 
+  function exportBackup() {
+    const backup = { version: 1, exportedAt: new Date().toISOString(), tournament, players, pairingsByRound, roundResults, history }
+    const file = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(file)
+    link.download = 'family-chess-backup.json'
+    link.click()
+    URL.revokeObjectURL(link.href)
+    setBackupNotice('Backup downloaded successfully.')
+  }
+
+  async function importBackup(event) {
+    const file = event.target.files[0]
+    if (!file) return
+    try {
+      const imported = JSON.parse(await file.text())
+      if (!imported.tournament || !Array.isArray(imported.players) || !Array.isArray(imported.history)) throw new Error('This is not a Family Chess backup file.')
+      setTournament(imported.tournament)
+      setPlayers(imported.players)
+      setPairingsByRound(imported.pairingsByRound || {})
+      setRoundResults(imported.roundResults || {})
+      setHistory(imported.history)
+      setRound(1)
+      setSelectedHistory(null)
+      setBackupNotice('Backup imported successfully.')
+      setActiveTab('Overview')
+    } catch (error) {
+      setBackupNotice(`Import failed: ${error.message}`)
+    }
+    event.target.value = ''
+  }
+
+  function deleteArchivedTournament(id) {
+    setHistory((current) => current.filter((item) => item.id !== id))
+    if (selectedHistory?.id === id) setSelectedHistory(null)
+  }
+
   function startNewTournament(event) {
     event.preventDefault()
     const playerLines = newTournamentDraft.players.split('\n').map((line) => line.trim()).filter(Boolean)
@@ -228,8 +267,11 @@ function App() {
 
       <section className="page-heading">
         <div><p className="eyebrow">{new Date(`${tournament.date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p><h1>{activeTab === 'Overview' ? tournament.name : activeTab}</h1><p className="subheading">A friendly tournament for family and friends.</p></div>
-        <div className="heading-actions"><button className="button secondary">Export</button>{activeTab === 'Overview' && <button className="button secondary" onClick={archiveTournament}>Archive tournament</button>}<button className="button secondary" onClick={() => { setNewTournamentDraft({ name: 'Spring Family Cup', date: new Date().toISOString().slice(0, 10), rounds: 4, scoring: 'chess', players: '' }); setShowNewTournamentForm(true) }}>+ New tournament</button><button className="button primary" onClick={() => { setTournamentDraft(tournament); setShowTournamentForm(true) }}>Tournament setup</button></div>
+        <div className="heading-actions"><button className="button secondary" onClick={exportBackup}>Export</button><button className="button secondary" onClick={() => importInputRef.current?.click()}>Import</button><input className="hidden-file-input" ref={importInputRef} type="file" accept="application/json" onChange={importBackup} />{activeTab === 'Overview' && <button className="button secondary" onClick={archiveTournament}>Archive tournament</button>}<button className="button secondary" onClick={() => { setNewTournamentDraft({ name: 'Spring Family Cup', date: new Date().toISOString().slice(0, 10), rounds: 4, scoring: 'chess', players: '' }); setShowNewTournamentForm(true) }}>+ New tournament</button><button className="button primary" onClick={() => { setTournamentDraft(tournament); setShowTournamentForm(true) }}>Tournament setup</button></div>
+          {selectedHistory && <button className="delete-history" onClick={() => deleteArchivedTournament(selectedHistory.id)}>Delete archived tournament</button>}
       </section>
+
+      {backupNotice && <p className="backup-notice" role="status">{backupNotice}</p>}
 
       {showTournamentForm && <div className="modal-backdrop"><form className="setup-modal" onSubmit={saveTournament}><div className="modal-header"><div><p className="eyebrow">Tournament details</p><h2>Set up your cup</h2></div><button className="close-button" type="button" aria-label="Close setup" onClick={() => setShowTournamentForm(false)}>×</button></div><p className="modal-help">These settings describe this tournament. Your players and results will stay safe.</p><label>Tournament name<input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} required /></label><label>Date<input type="date" value={tournamentDraft.date} onChange={(event) => setTournamentDraft({ ...tournamentDraft, date: event.target.value })} required /></label><label>Number of rounds<select value={tournamentDraft.rounds} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rounds: event.target.value })}><option value="2">2 rounds</option><option value="3">3 rounds</option><option value="4">4 rounds</option><option value="5">5 rounds</option><option value="6">6 rounds</option></select></label><label>Scoring system<select value={tournamentDraft.scoring} onChange={(event) => setTournamentDraft({ ...tournamentDraft, scoring: event.target.value })}><option value="chess">Chess: win 1, draw 0.5</option><option value="three-one-zero">Three-point: win 3, draw 1</option></select></label><div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowTournamentForm(false)}>Cancel</button><button className="button primary" type="submit">Save settings</button></div></form></div>}
 
