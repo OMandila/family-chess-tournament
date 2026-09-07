@@ -10,6 +10,12 @@ const initialPlayers = [
   { id: 6, name: 'Aisha Carter', initials: 'AC', rating: 920, wins: 0, draws: 0, losses: 2, points: 0 },
 ]
 
+const initialPairings = [
+  { id: 'round-2-1', white: 1, black: 2 },
+  { id: 'round-2-2', white: 3, black: 4 },
+  { id: 'round-2-3', white: 5, black: 6 },
+]
+
 function App() {
   const [players, setPlayers] = useState(() => {
     const savedPlayers = localStorage.getItem('family-chess-players')
@@ -17,6 +23,7 @@ function App() {
   })
   const [activeTab, setActiveTab] = useState('Overview')
   const [round, setRound] = useState(2)
+  const [roundResults, setRoundResults] = useState(() => JSON.parse(localStorage.getItem('family-chess-results') || '{}'))
   const [showPlayerForm, setShowPlayerForm] = useState(false)
   const [newPlayer, setNewPlayer] = useState({ name: '', rating: '' })
   const standings = useMemo(() => [...players].sort((a, b) => b.points - a.points || b.rating - a.rating), [players])
@@ -25,13 +32,25 @@ function App() {
     localStorage.setItem('family-chess-players', JSON.stringify(players))
   }, [players])
 
-  function updateResult(playerId, result) {
-    const changes = { win: [1, 0, 0, 1], draw: [0, 1, 0, 0.5], loss: [0, 0, 1, 0] }
+  useEffect(() => {
+    localStorage.setItem('family-chess-results', JSON.stringify(roundResults))
+  }, [roundResults])
+
+  function recordResult(pairing, result) {
+    if (roundResults[pairing.id]) return
+    const changes = {
+      'white-win': [[1, 0, 0, 1], [0, 0, 1, 0]],
+      draw: [[0, 1, 0, 0.5], [0, 1, 0, 0.5]],
+      'black-win': [[0, 0, 1, 0], [1, 0, 0, 1]],
+    }
+    const [whiteChange, blackChange] = changes[result]
     setPlayers((current) => current.map((player) => {
-      if (player.id !== playerId) return player
-      const [wins, draws, losses, points] = changes[result]
+      const change = player.id === pairing.white ? whiteChange : player.id === pairing.black ? blackChange : null
+      if (!change) return player
+      const [wins, draws, losses, points] = change
       return { ...player, wins: player.wins + wins, draws: player.draws + draws, losses: player.losses + losses, points: player.points + points }
     }))
+    setRoundResults((current) => ({ ...current, [pairing.id]: result }))
   }
 
   function addPlayer(event) {
@@ -68,7 +87,7 @@ function App() {
 
         <section className="content-grid">
           <article className="panel standings-panel"><div className="panel-header"><div><p className="eyebrow">Live results</p><h2>Standings</h2></div><button className="text-button">View full table <span>→</span></button></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Rating</th><th>W</th><th>D</th><th>L</th><th>Points</th></tr></thead><tbody>{standings.map((player, index) => <tr key={player.id}><td className="rank">{index + 1}</td><td><div className="player-cell"><span className={`player-avatar avatar-${index + 1}`}>{player.initials}</span><span>{player.name}{index === 0 && <em>Leader</em>}</span></div></td><td className="muted">{player.rating}</td><td>{player.wins}</td><td>{player.draws}</td><td>{player.losses}</td><td className="points">{player.points % 1 === 0 ? player.points : player.points.toFixed(1)}</td></tr>)}</tbody></table></div></article>
-          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round"><option value="1">Round 1</option><option value="2">Round 2</option><option value="3">Round 3</option><option value="4">Round 4</option></select></div><div className="pairings"><div className="pairing"><div><strong>Oliver Mandila</strong><span className="vs">vs</span><strong>Maya Mandila</strong></div><span className="result done">1 - 0</span></div><div className="pairing"><div><strong>Sam Carter</strong><span className="vs">vs</span><strong>Nadia Khan</strong></div><button className="result pending" onClick={() => updateResult(3, 'draw')}>Enter result</button></div><div className="pairing"><div><strong>Theo Mandila</strong><span className="vs">vs</span><strong>Aisha Carter</strong></div><button className="result pending" onClick={() => updateResult(5, 'win')}>Enter result</button></div></div><button className="button outline full">Manage pairings <span>→</span></button></article>
+          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round"><option value="1">Round 1</option><option value="2">Round 2</option><option value="3">Round 3</option><option value="4">Round 4</option></select></div><div className="pairings">{initialPairings.map((pairing) => { const white = players.find((player) => player.id === pairing.white); const black = players.find((player) => player.id === pairing.black); const result = roundResults[pairing.id]; return <div className="pairing" key={pairing.id}><div><strong>{white?.name || 'Player removed'}</strong><span className="vs">vs</span><strong>{black?.name || 'Player removed'}</strong></div>{result ? <span className="result done">{result === 'white-win' ? '1 - 0' : result === 'black-win' ? '0 - 1' : '½ - ½'}</span> : <div className="result-actions"><button className="result pending" onClick={() => recordResult(pairing, 'white-win')}>White wins</button><button className="result pending" onClick={() => recordResult(pairing, 'draw')}>Draw</button><button className="result pending" onClick={() => recordResult(pairing, 'black-win')}>Black wins</button></div>}</div> })}</div><button className="button outline full">Manage pairings <span>→</span></button></article>
         </section>
       </> : activeTab === 'Players' ? <section className="players-view"><div className="view-toolbar"><div><p className="eyebrow">Tournament roster</p><h2>Players</h2><p className="subheading">Manage everyone taking part in the Autumn Family Cup.</p></div><button className="button primary" onClick={() => setShowPlayerForm((visible) => !visible)}>+ Add player</button></div>{showPlayerForm && <form className="add-player-form" onSubmit={addPlayer}><label>Name<input value={newPlayer.name} onChange={(event) => setNewPlayer({ ...newPlayer, name: event.target.value })} placeholder="e.g. Jordan Lee" autoFocus /></label><label>Rating<input type="number" min="1" value={newPlayer.rating} onChange={(event) => setNewPlayer({ ...newPlayer, rating: event.target.value })} placeholder="1200" /></label><button className="button primary" type="submit">Add to roster</button></form>}<div className="player-grid">{players.map((player, index) => <article className="player-card" key={player.id}><div className={`player-avatar avatar-${(index % 6) + 1}`}>{player.initials}</div><div className="player-card-info"><strong>{player.name}</strong><span>{player.rating} rating</span></div><div className="player-card-record"><strong>{player.points}</strong><span>points</span></div><button className="remove-player" aria-label={`Remove ${player.name}`} onClick={() => setPlayers((current) => current.filter((item) => item.id !== player.id))}>×</button></article>)}</div></section> : <section className="empty-panel"><p className="eyebrow">Coming next</p><h2>{activeTab} view</h2><p>This area will become the home for your tournament history.</p><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to overview</button></section>}
 
