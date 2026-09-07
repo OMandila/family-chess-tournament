@@ -16,7 +16,7 @@ const initialPairings = [
   { id: 'round-2-3', white: 5, black: 6 },
 ]
 
-const totalRounds = 4
+const defaultTournament = { name: 'Autumn Family Cup', date: '2026-09-07', rounds: 4, scoring: 'chess' }
 
 function App() {
   const [players, setPlayers] = useState(() => {
@@ -26,6 +26,10 @@ function App() {
   const [activeTab, setActiveTab] = useState('Overview')
   const [round, setRound] = useState(2)
   const [roundResults, setRoundResults] = useState(() => JSON.parse(localStorage.getItem('family-chess-results') || '{}'))
+  // localStorage is the browser's little cupboard: settings stay there after a refresh.
+  const [tournament, setTournament] = useState(() => JSON.parse(localStorage.getItem('family-chess-tournament') || JSON.stringify(defaultTournament)))
+  const [showTournamentForm, setShowTournamentForm] = useState(false)
+  const [tournamentDraft, setTournamentDraft] = useState(tournament)
   const [showPlayerForm, setShowPlayerForm] = useState(false)
   const [newPlayer, setNewPlayer] = useState({ name: '', rating: '' })
   const standings = useMemo(() => [...players].sort((a, b) => b.points - a.points || b.rating - a.rating), [players])
@@ -33,9 +37,9 @@ function App() {
   const tournamentStats = useMemo(() => {
     const playerGameRecords = players.reduce((total, player) => total + player.wins + player.draws + player.losses, 0)
     const gamesPlayed = playerGameRecords / 2
-    const totalGames = (players.length * (players.length - 1) * totalRounds) / 2
+    const totalGames = (players.length * (players.length - 1) * tournament.rounds) / 2
     return { gamesPlayed, totalGames, gamesRemaining: Math.max(totalGames - gamesPlayed, 0) }
-  }, [players])
+  }, [players, tournament.rounds])
 
   useEffect(() => {
     localStorage.setItem('family-chess-players', JSON.stringify(players))
@@ -45,12 +49,18 @@ function App() {
     localStorage.setItem('family-chess-results', JSON.stringify(roundResults))
   }, [roundResults])
 
+  useEffect(() => {
+    localStorage.setItem('family-chess-tournament', JSON.stringify(tournament))
+  }, [tournament])
+
   function recordResult(pairing, result) {
     if (roundResults[pairing.id]) return
+    const drawPoints = tournament.scoring === 'three-one-zero' ? 1 : 0.5
+    const winPoints = tournament.scoring === 'three-one-zero' ? 3 : 1
     const changes = {
-      'white-win': [[1, 0, 0, 1], [0, 0, 1, 0]],
-      draw: [[0, 1, 0, 0.5], [0, 1, 0, 0.5]],
-      'black-win': [[0, 0, 1, 0], [1, 0, 0, 1]],
+      'white-win': [[1, 0, 0, winPoints], [0, 0, 1, 0]],
+      draw: [[0, 1, 0, drawPoints], [0, 1, 0, drawPoints]],
+      'black-win': [[0, 0, 1, 0], [1, 0, 0, winPoints]],
     }
     const [whiteChange, blackChange] = changes[result]
     setPlayers((current) => current.map((player) => {
@@ -60,6 +70,13 @@ function App() {
       return { ...player, wins: player.wins + wins, draws: player.draws + draws, losses: player.losses + losses, points: player.points + points }
     }))
     setRoundResults((current) => ({ ...current, [pairing.id]: result }))
+  }
+
+  function saveTournament(event) {
+    event.preventDefault()
+    setTournament({ ...tournamentDraft, rounds: Number(tournamentDraft.rounds) })
+    setRound((currentRound) => Math.min(currentRound, Number(tournamentDraft.rounds)))
+    setShowTournamentForm(false)
   }
 
   function addPlayer(event) {
@@ -82,13 +99,15 @@ function App() {
       </header>
 
       <section className="page-heading">
-        <div><p className="eyebrow">Sunday, 7 September 2026</p><h1>{activeTab === 'Overview' ? 'Autumn Family Cup' : activeTab}</h1><p className="subheading">A friendly tournament for family and friends.</p></div>
-        <div className="heading-actions"><button className="button secondary">Export</button><button className="button primary">+ New tournament</button></div>
+        <div><p className="eyebrow">{new Date(`${tournament.date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p><h1>{activeTab === 'Overview' ? tournament.name : activeTab}</h1><p className="subheading">A friendly tournament for family and friends.</p></div>
+        <div className="heading-actions"><button className="button secondary">Export</button><button className="button primary" onClick={() => { setTournamentDraft(tournament); setShowTournamentForm(true) }}>+ Tournament setup</button></div>
       </section>
+
+      {showTournamentForm && <div className="modal-backdrop"><form className="setup-modal" onSubmit={saveTournament}><div className="modal-header"><div><p className="eyebrow">Tournament details</p><h2>Set up your cup</h2></div><button className="close-button" type="button" aria-label="Close setup" onClick={() => setShowTournamentForm(false)}>×</button></div><p className="modal-help">These settings describe this tournament. Your players and results will stay safe.</p><label>Tournament name<input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} required /></label><label>Date<input type="date" value={tournamentDraft.date} onChange={(event) => setTournamentDraft({ ...tournamentDraft, date: event.target.value })} required /></label><label>Number of rounds<select value={tournamentDraft.rounds} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rounds: event.target.value })}><option value="2">2 rounds</option><option value="3">3 rounds</option><option value="4">4 rounds</option><option value="5">5 rounds</option><option value="6">6 rounds</option></select></label><label>Scoring system<select value={tournamentDraft.scoring} onChange={(event) => setTournamentDraft({ ...tournamentDraft, scoring: event.target.value })}><option value="chess">Chess: win 1, draw 0.5</option><option value="three-one-zero">Three-point: win 3, draw 1</option></select></label><div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowTournamentForm(false)}>Cancel</button><button className="button primary" type="submit">Save settings</button></div></form></div>}
 
       {activeTab === 'Overview' ? <>
         <section className="stats-grid" aria-label="Tournament summary">
-          <article className="stat-card accent"><span className="stat-label">Tournament progress</span><strong>Round {round} <small>of {totalRounds}</small></strong><div className="progress"><span style={{ width: `${(round / totalRounds) * 100}%` }} /></div><span className="stat-foot">{Math.round((round / totalRounds) * 100)}% complete</span></article>
+          <article className="stat-card accent"><span className="stat-label">Tournament progress</span><strong>Round {round} <small>of {tournament.rounds}</small></strong><div className="progress"><span style={{ width: `${(round / tournament.rounds) * 100}%` }} /></div><span className="stat-foot">{Math.round((round / tournament.rounds) * 100)}% complete</span></article>
           <article className="stat-card"><span className="stat-label">Players</span><strong>{players.length} <small>players</small></strong><span className="stat-foot online"><i /> All checked in</span></article>
           <article className="stat-card"><span className="stat-label">Games played</span><strong>{tournamentStats.gamesPlayed} <small>of {tournamentStats.totalGames}</small></strong><span className="stat-foot">{tournamentStats.gamesRemaining} games remaining</span></article>
           <article className="stat-card"><span className="stat-label">Next round</span><strong>14:30</strong><span className="stat-foot">Starts in 42 minutes</span></article>
@@ -96,7 +115,7 @@ function App() {
 
         <section className="content-grid">
           <article className="panel standings-panel"><div className="panel-header"><div><p className="eyebrow">Live results</p><h2>Standings</h2></div><button className="text-button">View full table <span>→</span></button></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Rating</th><th>W</th><th>D</th><th>L</th><th>Points</th></tr></thead><tbody>{standings.map((player, index) => <tr key={player.id}><td className="rank">{index + 1}</td><td><div className="player-cell"><span className={`player-avatar avatar-${index + 1}`}>{player.initials}</span><span>{player.name}{index === 0 && <em>Leader</em>}</span></div></td><td className="muted">{player.rating}</td><td>{player.wins}</td><td>{player.draws}</td><td>{player.losses}</td><td className="points">{player.points % 1 === 0 ? player.points : player.points.toFixed(1)}</td></tr>)}</tbody></table></div></article>
-          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round"><option value="1">Round 1</option><option value="2">Round 2</option><option value="3">Round 3</option><option value="4">Round 4</option></select></div><div className="pairings">{initialPairings.map((pairing) => { const white = players.find((player) => player.id === pairing.white); const black = players.find((player) => player.id === pairing.black); const result = roundResults[pairing.id]; return <div className="pairing" key={pairing.id}><div><strong>{white?.name || 'Player removed'}</strong><span className="vs">vs</span><strong>{black?.name || 'Player removed'}</strong></div>{result ? <span className="result done">{result === 'white-win' ? '1 - 0' : result === 'black-win' ? '0 - 1' : '½ - ½'}</span> : <div className="result-actions"><button className="result pending" onClick={() => recordResult(pairing, 'white-win')}>White wins</button><button className="result pending" onClick={() => recordResult(pairing, 'draw')}>Draw</button><button className="result pending" onClick={() => recordResult(pairing, 'black-win')}>Black wins</button></div>}</div> })}</div><button className="button outline full">Manage pairings <span>→</span></button></article>
+          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round">{Array.from({ length: tournament.rounds }, (_, index) => <option value={index + 1} key={index + 1}>Round {index + 1}</option>)}</select></div><div className="pairings">{initialPairings.map((pairing) => { const white = players.find((player) => player.id === pairing.white); const black = players.find((player) => player.id === pairing.black); const result = roundResults[pairing.id]; return <div className="pairing" key={pairing.id}><div><strong>{white?.name || 'Player removed'}</strong><span className="vs">vs</span><strong>{black?.name || 'Player removed'}</strong></div>{result ? <span className="result done">{result === 'white-win' ? '1 - 0' : result === 'black-win' ? '0 - 1' : '½ - ½'}</span> : <div className="result-actions"><button className="result pending" onClick={() => recordResult(pairing, 'white-win')}>White wins</button><button className="result pending" onClick={() => recordResult(pairing, 'draw')}>Draw</button><button className="result pending" onClick={() => recordResult(pairing, 'black-win')}>Black wins</button></div>}</div> })}</div><button className="button outline full">Manage pairings <span>→</span></button></article>
         </section>
       </> : activeTab === 'Players' ? <section className="players-view"><div className="view-toolbar"><div><p className="eyebrow">Tournament roster</p><h2>Players</h2><p className="subheading">Manage everyone taking part in the Autumn Family Cup.</p></div><button className="button primary" onClick={() => setShowPlayerForm((visible) => !visible)}>+ Add player</button></div>{showPlayerForm && <form className="add-player-form" onSubmit={addPlayer}><label>Name<input value={newPlayer.name} onChange={(event) => setNewPlayer({ ...newPlayer, name: event.target.value })} placeholder="e.g. Jordan Lee" autoFocus /></label><label>Rating<input type="number" min="1" value={newPlayer.rating} onChange={(event) => setNewPlayer({ ...newPlayer, rating: event.target.value })} placeholder="1200" /></label><button className="button primary" type="submit">Add to roster</button></form>}<div className="player-grid">{players.map((player, index) => <article className="player-card" key={player.id}><div className={`player-avatar avatar-${(index % 6) + 1}`}>{player.initials}</div><div className="player-card-info"><strong>{player.name}</strong><span>{player.rating} rating</span></div><div className="player-card-record"><strong>{player.points}</strong><span>points</span></div><button className="remove-player" aria-label={`Remove ${player.name}`} onClick={() => setPlayers((current) => current.filter((item) => item.id !== player.id))}>×</button></article>)}</div></section> : <section className="empty-panel"><p className="eyebrow">Coming next</p><h2>{activeTab} view</h2><p>This area will become the home for your tournament history.</p><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to overview</button></section>}
 
