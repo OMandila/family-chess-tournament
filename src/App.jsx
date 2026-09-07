@@ -18,14 +18,33 @@ const initialPairings = [
 
 const defaultTournament = { name: 'Autumn Family Cup', date: '2026-09-07', rounds: 4, scoring: 'chess' }
 
+function generatePairings(players, roundNumber, allPairings) {
+  const remaining = [...players].sort((a, b) => b.rating - a.rating)
+  const newPairings = []
+  const previousMatches = allPairings.flatMap((pairings) => Array.isArray(pairings) ? pairings : []).map((pairing) => [pairing.white, pairing.black].sort().join('-'))
+
+  // Pair the strongest remaining player with the closest opponent they have not met yet.
+  while (remaining.length > 1) {
+    const white = remaining.shift()
+    const opponentIndex = remaining.findIndex((player) => !previousMatches.includes([white.id, player.id].sort().join('-')))
+    const black = remaining.splice(opponentIndex === -1 ? 0 : opponentIndex, 1)[0]
+    newPairings.push({ id: `round-${roundNumber}-${newPairings.length + 1}`, white: white.id, black: black.id })
+  }
+  return newPairings
+}
+
 function App() {
   const [players, setPlayers] = useState(() => {
     const savedPlayers = localStorage.getItem('family-chess-players')
     return savedPlayers ? JSON.parse(savedPlayers) : initialPlayers
   })
   const [activeTab, setActiveTab] = useState('Overview')
-  const [round, setRound] = useState(2)
+  const [round, setRound] = useState(() => Number(localStorage.getItem('family-chess-round') || 2))
   const [roundResults, setRoundResults] = useState(() => JSON.parse(localStorage.getItem('family-chess-results') || '{}'))
+  const [pairingsByRound, setPairingsByRound] = useState(() => JSON.parse(localStorage.getItem('family-chess-pairings') || JSON.stringify({ 2: initialPairings })))
+  const [showPairingForm, setShowPairingForm] = useState(false)
+  const [pairingDraft, setPairingDraft] = useState([])
+  const [pairingNotice, setPairingNotice] = useState('')
   // localStorage is the browser's little cupboard: settings stay there after a refresh.
   const [tournament, setTournament] = useState(() => JSON.parse(localStorage.getItem('family-chess-tournament') || JSON.stringify(defaultTournament)))
   const [showTournamentForm, setShowTournamentForm] = useState(false)
@@ -48,6 +67,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem('family-chess-results', JSON.stringify(roundResults))
   }, [roundResults])
+
+  useEffect(() => {
+    localStorage.setItem('family-chess-pairings', JSON.stringify(pairingsByRound))
+  }, [pairingsByRound])
+
+  useEffect(() => {
+    localStorage.setItem('family-chess-round', String(round))
+  }, [round])
 
   useEffect(() => {
     localStorage.setItem('family-chess-tournament', JSON.stringify(tournament))
@@ -74,9 +101,47 @@ function App() {
 
   function saveTournament(event) {
     event.preventDefault()
-    setTournament({ ...tournamentDraft, rounds: Number(tournamentDraft.rounds) })
-    setRound((currentRound) => Math.min(currentRound, Number(tournamentDraft.rounds)))
+    const nextTournament = { ...tournamentDraft, rounds: Number(tournamentDraft.rounds) }
+    if (nextTournament.scoring !== tournament.scoring) {
+      const drawPoints = nextTournament.scoring === 'three-one-zero' ? 1 : 0.5
+      const winPoints = nextTournament.scoring === 'three-one-zero' ? 3 : 1
+      setPlayers((current) => current.map((player) => ({ ...player, points: player.wins * winPoints + player.draws * drawPoints })))
+    }
+    setTournament(nextTournament)
+    setRound((currentRound) => Math.min(currentRound, nextTournament.rounds))
     setShowTournamentForm(false)
+  }
+
+  function generateRoundPairings() {
+    const currentRoundResults = Object.keys(roundResults).some((id) => id.startsWith(`round-${round}-`))
+    if (currentRoundResults) {
+      setPairingNotice('This round has results already. Start a fresh round before generating new pairings.')
+      return
+    }
+    const previousPairings = Object.entries(pairingsByRound).filter(([roundNumber]) => Number(roundNumber) !== round).map(([, pairings]) => pairings)
+    const generated = generatePairings(players, round, previousPairings)
+    setPairingsByRound((current) => ({ ...current, [round]: generated }))
+    setRoundResults((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !id.startsWith(`round-${round}-`))))
+    setShowPairingForm(false)
+  }
+
+  function openPairingEditor() {
+    const currentRoundResults = Object.keys(roundResults).some((id) => id.startsWith(`round-${round}-`))
+    if (currentRoundResults) {
+      setPairingNotice('This round is locked because it has recorded results.')
+      return
+    }
+    setPairingDraft(pairingsByRound[round] || generatePairings(players, round, Object.values(pairingsByRound)))
+    setShowPairingForm(true)
+  }
+
+  function savePairings(event) {
+    event.preventDefault()
+    const usedPlayers = pairingDraft.flatMap((pairing) => [Number(pairing.white), Number(pairing.black)])
+    if (new Set(usedPlayers).size !== usedPlayers.length) return
+    setPairingNotice('')
+    setPairingsByRound((current) => ({ ...current, [round]: pairingDraft }))
+    setShowPairingForm(false)
   }
 
   function addPlayer(event) {
@@ -88,6 +153,15 @@ function App() {
     setPlayers((current) => [...current, { id: Date.now(), name, initials, rating, wins: 0, draws: 0, losses: 0, points: 0 }])
     setNewPlayer({ name: '', rating: '' })
     setShowPlayerForm(false)
+  }
+
+  function removePlayer(player) {
+    if (player.wins + player.draws + player.losses > 0) {
+      setPairingNotice(`${player.name} has recorded games and cannot be removed yet.`)
+      return
+    }
+    setPlayers((current) => current.filter((item) => item.id !== player.id))
+    setPairingsByRound((current) => Object.fromEntries(Object.entries(current).map(([roundNumber, pairings]) => [roundNumber, pairings.filter((pairing) => pairing.white !== player.id && pairing.black !== player.id)])))
   }
 
   return (
@@ -105,7 +179,10 @@ function App() {
 
       {showTournamentForm && <div className="modal-backdrop"><form className="setup-modal" onSubmit={saveTournament}><div className="modal-header"><div><p className="eyebrow">Tournament details</p><h2>Set up your cup</h2></div><button className="close-button" type="button" aria-label="Close setup" onClick={() => setShowTournamentForm(false)}>×</button></div><p className="modal-help">These settings describe this tournament. Your players and results will stay safe.</p><label>Tournament name<input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} required /></label><label>Date<input type="date" value={tournamentDraft.date} onChange={(event) => setTournamentDraft({ ...tournamentDraft, date: event.target.value })} required /></label><label>Number of rounds<select value={tournamentDraft.rounds} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rounds: event.target.value })}><option value="2">2 rounds</option><option value="3">3 rounds</option><option value="4">4 rounds</option><option value="5">5 rounds</option><option value="6">6 rounds</option></select></label><label>Scoring system<select value={tournamentDraft.scoring} onChange={(event) => setTournamentDraft({ ...tournamentDraft, scoring: event.target.value })}><option value="chess">Chess: win 1, draw 0.5</option><option value="three-one-zero">Three-point: win 3, draw 1</option></select></label><div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowTournamentForm(false)}>Cancel</button><button className="button primary" type="submit">Save settings</button></div></form></div>}
 
+      {showPairingForm && <div className="modal-backdrop"><form className="setup-modal pairing-modal" onSubmit={savePairings}><div className="modal-header"><div><p className="eyebrow">Round {round}</p><h2>Manage pairings</h2></div><button className="close-button" type="button" aria-label="Close pairing editor" onClick={() => setShowPairingForm(false)}>×</button></div><p className="modal-help">Choose who plays in each match. A player can only appear once in a round.</p>{pairingDraft.map((pairing, index) => <div className="pairing-editor" key={pairing.id}><span>{index + 1}</span><select aria-label={`White player ${index + 1}`} value={pairing.white} onChange={(event) => setPairingDraft((current) => current.map((item) => item.id === pairing.id ? { ...item, white: Number(event.target.value) } : item))}>{players.map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select><span className="vs">vs</span><select aria-label={`Black player ${index + 1}`} value={pairing.black} onChange={(event) => setPairingDraft((current) => current.map((item) => item.id === pairing.id ? { ...item, black: Number(event.target.value) } : item))}>{players.map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></div>)}<div className="modal-actions"><button className="button secondary" type="button" onClick={generateRoundPairings}>Generate new pairings</button><button className="button primary" type="submit">Save pairings</button></div></form></div>}
+
       {activeTab === 'Overview' ? <>
+        {pairingNotice && <p className="pairing-notice" role="status">{pairingNotice}</p>}
         <section className="stats-grid" aria-label="Tournament summary">
           <article className="stat-card accent"><span className="stat-label">Tournament progress</span><strong>Round {round} <small>of {tournament.rounds}</small></strong><div className="progress"><span style={{ width: `${(round / tournament.rounds) * 100}%` }} /></div><span className="stat-foot">{Math.round((round / tournament.rounds) * 100)}% complete</span></article>
           <article className="stat-card"><span className="stat-label">Players</span><strong>{players.length} <small>players</small></strong><span className="stat-foot online"><i /> All checked in</span></article>
@@ -115,9 +192,9 @@ function App() {
 
         <section className="content-grid">
           <article className="panel standings-panel"><div className="panel-header"><div><p className="eyebrow">Live results</p><h2>Standings</h2></div><button className="text-button">View full table <span>→</span></button></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Rating</th><th>W</th><th>D</th><th>L</th><th>Points</th></tr></thead><tbody>{standings.map((player, index) => <tr key={player.id}><td className="rank">{index + 1}</td><td><div className="player-cell"><span className={`player-avatar avatar-${index + 1}`}>{player.initials}</span><span>{player.name}{index === 0 && <em>Leader</em>}</span></div></td><td className="muted">{player.rating}</td><td>{player.wins}</td><td>{player.draws}</td><td>{player.losses}</td><td className="points">{player.points % 1 === 0 ? player.points : player.points.toFixed(1)}</td></tr>)}</tbody></table></div></article>
-          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round">{Array.from({ length: tournament.rounds }, (_, index) => <option value={index + 1} key={index + 1}>Round {index + 1}</option>)}</select></div><div className="pairings">{initialPairings.map((pairing) => { const white = players.find((player) => player.id === pairing.white); const black = players.find((player) => player.id === pairing.black); const result = roundResults[pairing.id]; return <div className="pairing" key={pairing.id}><div><strong>{white?.name || 'Player removed'}</strong><span className="vs">vs</span><strong>{black?.name || 'Player removed'}</strong></div>{result ? <span className="result done">{result === 'white-win' ? '1 - 0' : result === 'black-win' ? '0 - 1' : '½ - ½'}</span> : <div className="result-actions"><button className="result pending" onClick={() => recordResult(pairing, 'white-win')}>White wins</button><button className="result pending" onClick={() => recordResult(pairing, 'draw')}>Draw</button><button className="result pending" onClick={() => recordResult(pairing, 'black-win')}>Black wins</button></div>}</div> })}</div><button className="button outline full">Manage pairings <span>→</span></button></article>
+          <article className="panel round-panel"><div className="panel-header"><div><p className="eyebrow">Pairings</p><h2>Round {round}</h2></div><select value={round} onChange={(event) => setRound(Number(event.target.value))} aria-label="Select round">{Array.from({ length: tournament.rounds }, (_, index) => <option value={index + 1} key={index + 1}>Round {index + 1}</option>)}</select></div><div className="pairings">{(pairingsByRound[round] || []).length === 0 && <p className="empty-pairings">No pairings yet. Generate this round to get started.</p>}{(pairingsByRound[round] || []).map((pairing) => { const white = players.find((player) => player.id === pairing.white); const black = players.find((player) => player.id === pairing.black); const result = roundResults[pairing.id]; return <div className="pairing" key={pairing.id}><div><strong>{white?.name || 'Player removed'}</strong><span className="vs">vs</span><strong>{black?.name || 'Player removed'}</strong></div>{result ? <span className="result done">{result === 'white-win' ? '1 - 0' : result === 'black-win' ? '0 - 1' : '½ - ½'}</span> : <div className="result-actions"><button className="result pending" onClick={() => recordResult(pairing, 'white-win')}>White wins</button><button className="result pending" onClick={() => recordResult(pairing, 'draw')}>Draw</button><button className="result pending" onClick={() => recordResult(pairing, 'black-win')}>Black wins</button></div>}</div> })}</div><div className="pairing-footer"><button className="button outline" onClick={openPairingEditor}>Manage pairings <span>→</span></button><button className="text-button" onClick={generateRoundPairings}>Generate round</button></div></article>
         </section>
-      </> : activeTab === 'Players' ? <section className="players-view"><div className="view-toolbar"><div><p className="eyebrow">Tournament roster</p><h2>Players</h2><p className="subheading">Manage everyone taking part in the Autumn Family Cup.</p></div><button className="button primary" onClick={() => setShowPlayerForm((visible) => !visible)}>+ Add player</button></div>{showPlayerForm && <form className="add-player-form" onSubmit={addPlayer}><label>Name<input value={newPlayer.name} onChange={(event) => setNewPlayer({ ...newPlayer, name: event.target.value })} placeholder="e.g. Jordan Lee" autoFocus /></label><label>Rating<input type="number" min="1" value={newPlayer.rating} onChange={(event) => setNewPlayer({ ...newPlayer, rating: event.target.value })} placeholder="1200" /></label><button className="button primary" type="submit">Add to roster</button></form>}<div className="player-grid">{players.map((player, index) => <article className="player-card" key={player.id}><div className={`player-avatar avatar-${(index % 6) + 1}`}>{player.initials}</div><div className="player-card-info"><strong>{player.name}</strong><span>{player.rating} rating</span></div><div className="player-card-record"><strong>{player.points}</strong><span>points</span></div><button className="remove-player" aria-label={`Remove ${player.name}`} onClick={() => setPlayers((current) => current.filter((item) => item.id !== player.id))}>×</button></article>)}</div></section> : <section className="empty-panel"><p className="eyebrow">Coming next</p><h2>{activeTab} view</h2><p>This area will become the home for your tournament history.</p><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to overview</button></section>}
+      </> : activeTab === 'Players' ? <section className="players-view"><div className="view-toolbar"><div><p className="eyebrow">Tournament roster</p><h2>Players</h2><p className="subheading">Manage everyone taking part in the Autumn Family Cup.</p></div><button className="button primary" onClick={() => setShowPlayerForm((visible) => !visible)}>+ Add player</button></div>{pairingNotice && <p className="pairing-notice" role="status">{pairingNotice}</p>}{showPlayerForm && <form className="add-player-form" onSubmit={addPlayer}><label>Name<input value={newPlayer.name} onChange={(event) => setNewPlayer({ ...newPlayer, name: event.target.value })} placeholder="e.g. Jordan Lee" autoFocus /></label><label>Rating<input type="number" min="1" value={newPlayer.rating} onChange={(event) => setNewPlayer({ ...newPlayer, rating: event.target.value })} placeholder="1200" /></label><button className="button primary" type="submit">Add to roster</button></form>}<div className="player-grid">{players.map((player, index) => <article className="player-card" key={player.id}><div className={`player-avatar avatar-${(index % 6) + 1}`}>{player.initials}</div><div className="player-card-info"><strong>{player.name}</strong><span>{player.rating} rating</span></div><div className="player-card-record"><strong>{player.points}</strong><span>points</span></div><button className="remove-player" aria-label={`Remove ${player.name}`} onClick={() => removePlayer(player)}>×</button></article>)}</div></section> : <section className="empty-panel"><p className="eyebrow">Coming next</p><h2>{activeTab} view</h2><p>This area will become the home for your tournament history.</p><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to overview</button></section>}
 
       <footer><span>Autumn Family Cup · 2026</span><span>Saved locally <i className="saved-dot" /> · Last updated just now</span></footer>
     </main>
