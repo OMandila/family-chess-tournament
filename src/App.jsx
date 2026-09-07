@@ -16,6 +16,8 @@ const initialPairings = [
   { id: 'round-2-3', white: 5, black: 6 },
 ]
 
+const totalRounds = 4
+
 function App() {
   const [players, setPlayers] = useState(() => {
     const savedPlayers = localStorage.getItem('family-chess-players')
@@ -27,6 +29,13 @@ function App() {
   const [showPlayerForm, setShowPlayerForm] = useState(false)
   const [newPlayer, setNewPlayer] = useState({ name: '', rating: '' })
   const standings = useMemo(() => [...players].sort((a, b) => b.points - a.points || b.rating - a.rating), [players])
+  // Every game appears in two player records, so divide the record total by two.
+  const tournamentStats = useMemo(() => {
+    const playerGameRecords = players.reduce((total, player) => total + player.wins + player.draws + player.losses, 0)
+    const gamesPlayed = playerGameRecords / 2
+    const totalGames = (players.length * (players.length - 1) * totalRounds) / 2
+    return { gamesPlayed, totalGames, gamesRemaining: Math.max(totalGames - gamesPlayed, 0) }
+  }, [players])
 
   useEffect(() => {
     localStorage.setItem('family-chess-players', JSON.stringify(players))
@@ -79,9 +88,9 @@ function App() {
 
       {activeTab === 'Overview' ? <>
         <section className="stats-grid" aria-label="Tournament summary">
-          <article className="stat-card accent"><span className="stat-label">Tournament progress</span><strong>Round {round} <small>of 4</small></strong><div className="progress"><span style={{ width: `${round * 25}%` }} /></div><span className="stat-foot">{round * 25}% complete</span></article>
+          <article className="stat-card accent"><span className="stat-label">Tournament progress</span><strong>Round {round} <small>of {totalRounds}</small></strong><div className="progress"><span style={{ width: `${(round / totalRounds) * 100}%` }} /></div><span className="stat-foot">{Math.round((round / totalRounds) * 100)}% complete</span></article>
           <article className="stat-card"><span className="stat-label">Players</span><strong>{players.length} <small>players</small></strong><span className="stat-foot online"><i /> All checked in</span></article>
-          <article className="stat-card"><span className="stat-label">Games played</span><strong>6 <small>of 12</small></strong><span className="stat-foot">4 games remaining</span></article>
+          <article className="stat-card"><span className="stat-label">Games played</span><strong>{tournamentStats.gamesPlayed} <small>of {tournamentStats.totalGames}</small></strong><span className="stat-foot">{tournamentStats.gamesRemaining} games remaining</span></article>
           <article className="stat-card"><span className="stat-label">Next round</span><strong>14:30</strong><span className="stat-foot">Starts in 42 minutes</span></article>
         </section>
 
