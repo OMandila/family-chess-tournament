@@ -49,6 +49,8 @@ function App() {
   const [tournament, setTournament] = useState(() => JSON.parse(localStorage.getItem('family-chess-tournament') || JSON.stringify(defaultTournament)))
   const [showTournamentForm, setShowTournamentForm] = useState(false)
   const [tournamentDraft, setTournamentDraft] = useState(tournament)
+  const [showNewTournamentForm, setShowNewTournamentForm] = useState(false)
+  const [newTournamentDraft, setNewTournamentDraft] = useState({ name: 'Spring Family Cup', date: new Date().toISOString().slice(0, 10), rounds: 4, scoring: 'chess', players: '' })
   const [showPlayerForm, setShowPlayerForm] = useState(false)
   const [newPlayer, setNewPlayer] = useState({ name: '', rating: '' })
   const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('family-chess-history') || '[]'))
@@ -170,9 +172,9 @@ function App() {
     setPairingsByRound((current) => Object.fromEntries(Object.entries(current).map(([roundNumber, pairings]) => [roundNumber, pairings.filter((pairing) => pairing.white !== player.id && pairing.black !== player.id)])))
   }
 
-  function archiveTournament() {
+  function createTournamentSnapshot() {
     // A snapshot is a photograph: future edits to the live tournament cannot change it.
-    const snapshot = {
+    return {
       id: Date.now(),
       tournament: { ...tournament, rounds: Number(tournament.rounds) },
       players: players.map((player) => ({ ...player })),
@@ -180,9 +182,40 @@ function App() {
       roundResults: { ...roundResults },
       archivedAt: new Date().toISOString(),
     }
+  }
+
+  function archiveTournament() {
+    const snapshot = createTournamentSnapshot()
     setHistory((current) => [snapshot, ...current])
     setSelectedHistory(snapshot)
     setActiveTab('History')
+  }
+
+  function startNewTournament(event) {
+    event.preventDefault()
+    const playerLines = newTournamentDraft.players.split('\n').map((line) => line.trim()).filter(Boolean)
+    if (playerLines.length < 2) {
+      setPairingNotice('Please add at least two new players, one per line.')
+      return
+    }
+    const freshPlayers = playerLines.map((line, index) => {
+      const [namePart, ratingPart] = line.split(',')
+      const name = namePart.trim()
+      const rating = Number(ratingPart) || 1000
+      return { id: Date.now() + index, name, initials: name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), rating, wins: 0, draws: 0, losses: 0, points: 0 }
+    })
+    const snapshot = createTournamentSnapshot()
+    // Archive first, then replace only the live tournament data with the new cup.
+    setHistory((current) => [snapshot, ...current])
+    setTournament({ name: newTournamentDraft.name.trim(), date: newTournamentDraft.date, rounds: Number(newTournamentDraft.rounds), scoring: newTournamentDraft.scoring })
+    setPlayers(freshPlayers)
+    setPairingsByRound({})
+    setRoundResults({})
+    setRound(1)
+    setSelectedHistory(null)
+    setPairingNotice('')
+    setActiveTab('Overview')
+    setShowNewTournamentForm(false)
   }
 
   return (
@@ -195,10 +228,12 @@ function App() {
 
       <section className="page-heading">
         <div><p className="eyebrow">{new Date(`${tournament.date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p><h1>{activeTab === 'Overview' ? tournament.name : activeTab}</h1><p className="subheading">A friendly tournament for family and friends.</p></div>
-        <div className="heading-actions"><button className="button secondary">Export</button>{activeTab === 'Overview' && <button className="button secondary" onClick={archiveTournament}>Archive tournament</button>}<button className="button primary" onClick={() => { setTournamentDraft(tournament); setShowTournamentForm(true) }}>+ Tournament setup</button></div>
+        <div className="heading-actions"><button className="button secondary">Export</button>{activeTab === 'Overview' && <button className="button secondary" onClick={archiveTournament}>Archive tournament</button>}<button className="button secondary" onClick={() => { setNewTournamentDraft({ name: 'Spring Family Cup', date: new Date().toISOString().slice(0, 10), rounds: 4, scoring: 'chess', players: '' }); setShowNewTournamentForm(true) }}>+ New tournament</button><button className="button primary" onClick={() => { setTournamentDraft(tournament); setShowTournamentForm(true) }}>Tournament setup</button></div>
       </section>
 
       {showTournamentForm && <div className="modal-backdrop"><form className="setup-modal" onSubmit={saveTournament}><div className="modal-header"><div><p className="eyebrow">Tournament details</p><h2>Set up your cup</h2></div><button className="close-button" type="button" aria-label="Close setup" onClick={() => setShowTournamentForm(false)}>×</button></div><p className="modal-help">These settings describe this tournament. Your players and results will stay safe.</p><label>Tournament name<input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} required /></label><label>Date<input type="date" value={tournamentDraft.date} onChange={(event) => setTournamentDraft({ ...tournamentDraft, date: event.target.value })} required /></label><label>Number of rounds<select value={tournamentDraft.rounds} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rounds: event.target.value })}><option value="2">2 rounds</option><option value="3">3 rounds</option><option value="4">4 rounds</option><option value="5">5 rounds</option><option value="6">6 rounds</option></select></label><label>Scoring system<select value={tournamentDraft.scoring} onChange={(event) => setTournamentDraft({ ...tournamentDraft, scoring: event.target.value })}><option value="chess">Chess: win 1, draw 0.5</option><option value="three-one-zero">Three-point: win 3, draw 1</option></select></label><div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowTournamentForm(false)}>Cancel</button><button className="button primary" type="submit">Save settings</button></div></form></div>}
+
+      {showNewTournamentForm && <div className="modal-backdrop"><form className="setup-modal" onSubmit={startNewTournament}><div className="modal-header"><div><p className="eyebrow">Start fresh</p><h2>New tournament</h2></div><button className="close-button" type="button" aria-label="Close new tournament" onClick={() => setShowNewTournamentForm(false)}>×</button></div><p className="modal-help">Your current tournament will be archived automatically before this new one begins.</p><label>Tournament name<input value={newTournamentDraft.name} onChange={(event) => setNewTournamentDraft({ ...newTournamentDraft, name: event.target.value })} required /></label><label>Date<input type="date" value={newTournamentDraft.date} onChange={(event) => setNewTournamentDraft({ ...newTournamentDraft, date: event.target.value })} required /></label><label>Number of rounds<select value={newTournamentDraft.rounds} onChange={(event) => setNewTournamentDraft({ ...newTournamentDraft, rounds: event.target.value })}><option value="2">2 rounds</option><option value="3">3 rounds</option><option value="4">4 rounds</option><option value="5">5 rounds</option><option value="6">6 rounds</option></select></label><label>Scoring system<select value={newTournamentDraft.scoring} onChange={(event) => setNewTournamentDraft({ ...newTournamentDraft, scoring: event.target.value })}><option value="chess">Chess: win 1, draw 0.5</option><option value="three-one-zero">Three-point: win 3, draw 1</option></select></label><label>Players<textarea value={newTournamentDraft.players} onChange={(event) => setNewTournamentDraft({ ...newTournamentDraft, players: event.target.value })} placeholder={'Maya Smith, 1200\nOliver Smith, 1100'} rows="5" required /></label><p className="field-help">Write one player per line. A rating after a comma is optional.</p><div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowNewTournamentForm(false)}>Cancel</button><button className="button primary" type="submit">Archive and start</button></div></form></div>}
 
       {showPairingForm && <div className="modal-backdrop"><form className="setup-modal pairing-modal" onSubmit={savePairings}><div className="modal-header"><div><p className="eyebrow">Round {round}</p><h2>Manage pairings</h2></div><button className="close-button" type="button" aria-label="Close pairing editor" onClick={() => setShowPairingForm(false)}>×</button></div><p className="modal-help">Choose who plays in each match. A player can only appear once in a round.</p>{pairingDraft.map((pairing, index) => <div className="pairing-editor" key={pairing.id}><span>{index + 1}</span><select aria-label={`White player ${index + 1}`} value={pairing.white} onChange={(event) => setPairingDraft((current) => current.map((item) => item.id === pairing.id ? { ...item, white: Number(event.target.value) } : item))}>{players.map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select><span className="vs">vs</span><select aria-label={`Black player ${index + 1}`} value={pairing.black} onChange={(event) => setPairingDraft((current) => current.map((item) => item.id === pairing.id ? { ...item, black: Number(event.target.value) } : item))}>{players.map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></div>)}<div className="modal-actions"><button className="button secondary" type="button" onClick={generateRoundPairings}>Generate new pairings</button><button className="button primary" type="submit">Save pairings</button></div></form></div>}
 
@@ -217,7 +252,7 @@ function App() {
         </section>
       </> : activeTab === 'Players' ? <section className="players-view"><div className="view-toolbar"><div><p className="eyebrow">Tournament roster</p><h2>Players</h2><p className="subheading">Manage everyone taking part in the Autumn Family Cup.</p></div><button className="button primary" onClick={() => setShowPlayerForm((visible) => !visible)}>+ Add player</button></div>{pairingNotice && <p className="pairing-notice" role="status">{pairingNotice}</p>}{showPlayerForm && <form className="add-player-form" onSubmit={addPlayer}><label>Name<input value={newPlayer.name} onChange={(event) => setNewPlayer({ ...newPlayer, name: event.target.value })} placeholder="e.g. Jordan Lee" autoFocus /></label><label>Rating<input type="number" min="1" value={newPlayer.rating} onChange={(event) => setNewPlayer({ ...newPlayer, rating: event.target.value })} placeholder="1200" /></label><button className="button primary" type="submit">Add to roster</button></form>}<div className="player-grid">{players.map((player, index) => <article className="player-card" key={player.id}><div className={`player-avatar avatar-${(index % 6) + 1}`}>{player.initials}</div><div className="player-card-info"><strong>{player.name}</strong><span>{player.rating} rating</span></div><div className="player-card-record"><strong>{player.points}</strong><span>points</span></div><button className="remove-player" aria-label={`Remove ${player.name}`} onClick={() => removePlayer(player)}>×</button></article>)}</div></section> : activeTab === 'History' ? <section className="history-view"><div className="view-toolbar"><div><p className="eyebrow">Your archive</p><h2>Tournament history</h2><p className="subheading">Finished tournaments, kept for looking back and learning.</p></div><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to current</button></div>{history.length === 0 ? <div className="empty-panel"><p className="eyebrow">Nothing archived yet</p><h2>Your first tournament is still underway</h2><p>When the day is finished, use “Archive tournament” on the overview screen to save it here.</p></div> : <div className="history-layout"><div className="history-list">{history.map((item) => <button className={selectedHistory?.id === item.id ? 'history-card selected' : 'history-card'} key={item.id} onClick={() => setSelectedHistory(item)}><span className="eyebrow">{new Date(`${item.tournament.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span><strong>{item.tournament.name}</strong><span>{item.players.length} players · {Object.keys(item.roundResults).length} results</span></button>)}</div>{selectedHistory && <article className="history-detail"><p className="eyebrow">Archived tournament</p><h2>{selectedHistory.tournament.name}</h2><p className="subheading">{new Date(`${selectedHistory.tournament.date}T12:00:00`).toLocaleDateString('en-GB', { dateStyle: 'long' })}</p><div className="history-summary"><span><strong>{selectedHistory.players.length}</strong>players</span><span><strong>{Object.keys(selectedHistory.roundResults).length}</strong>results</span><span><strong>{selectedHistory.tournament.rounds}</strong>rounds</span></div><h3>Final standings</h3><ol>{[...selectedHistory.players].sort((a, b) => b.points - a.points).map((player) => <li key={player.id}><span>{player.name}</span><strong>{player.points} pts</strong></li>)}</ol></article>}</div>}</section> : <section className="empty-panel"><p className="eyebrow">Coming next</p><h2>{activeTab} view</h2><p>This area will become the home for your tournament history.</p><button className="button primary" onClick={() => setActiveTab('Overview')}>Back to overview</button></section>}
 
-      <footer><span>Autumn Family Cup · 2026</span><span>Saved locally <i className="saved-dot" /> · Last updated just now</span></footer>
+      <footer><span>{tournament.name} · {new Date(`${tournament.date}T12:00:00`).getFullYear()}</span><span>Saved locally <i className="saved-dot" /> · Last updated just now</span></footer>
     </main>
   )
 }
