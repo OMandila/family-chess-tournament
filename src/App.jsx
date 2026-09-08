@@ -4,8 +4,8 @@ import "./App.css";
 const starterPlayers = [
   {
     id: 1,
-    name: "Oliver Mandila",
-    initials: "OM",
+    name: "Alpha One",
+    initials: "AO",
     rating: 1240,
     wins: 2,
     draws: 0,
@@ -14,8 +14,8 @@ const starterPlayers = [
   },
   {
     id: 2,
-    name: "Maya Mandila",
-    initials: "MM",
+    name: "Bravo Two",
+    initials: "BT",
     rating: 1180,
     wins: 1,
     draws: 1,
@@ -24,8 +24,8 @@ const starterPlayers = [
   },
   {
     id: 3,
-    name: "Sam Carter",
-    initials: "SC",
+    name: "Charlie Three",
+    initials: "CT",
     rating: 1120,
     wins: 1,
     draws: 0,
@@ -34,8 +34,8 @@ const starterPlayers = [
   },
   {
     id: 4,
-    name: "Nadia Khan",
-    initials: "NK",
+    name: "Delta Four",
+    initials: "DF",
     rating: 1050,
     wins: 0,
     draws: 1,
@@ -44,8 +44,8 @@ const starterPlayers = [
   },
   {
     id: 5,
-    name: "Theo Mandila",
-    initials: "TM",
+    name: "Echo Five",
+    initials: "EF",
     rating: 980,
     wins: 0,
     draws: 1,
@@ -54,8 +54,8 @@ const starterPlayers = [
   },
   {
     id: 6,
-    name: "Aisha Carter",
-    initials: "AC",
+    name: "Foxtrot Six",
+    initials: "FS",
     rating: 920,
     wins: 0,
     draws: 0,
